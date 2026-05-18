@@ -984,7 +984,7 @@ pub fn output_slot(
                 .last()
                 .filter(|_| meta.is_full())
                 .map(|entry| entry.hash)
-                .unwrap_or(Hash::default());
+                .unwrap_or_default();
 
             let mut num_transactions = 0;
             let mut program_ids = HashMap::new();

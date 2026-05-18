@@ -240,6 +240,7 @@ pub struct InsertResults {
     duplicate_shreds: Vec<PossibleDuplicateShred>,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum ConfirmedBlockComponent {
     EntryBatch(Vec<EntrySummary>),
     BlockMarker(VersionedBlockMarker),
@@ -4042,21 +4043,6 @@ impl Blockstore {
 
     #[cfg(feature = "dev-context-only-utils")]
     pub fn get_complete_block_with_components(
-        &self,
-        slot: Slot,
-        require_previous_blockhash: bool,
-        populate_components: bool,
-        allow_dead_slots: bool,
-    ) -> Result<VersionedConfirmedBlockWithComponents> {
-        self.do_get_complete_block_with_components(
-            slot,
-            require_previous_blockhash,
-            populate_components,
-            allow_dead_slots,
-        )
-    }
-
-    fn do_get_complete_block_with_components(
         &self,
         slot: Slot,
         require_previous_blockhash: bool,
