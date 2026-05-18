@@ -3991,52 +3991,14 @@ impl Blockstore {
                 transaction
             });
 
-        let previous_blockhash = slot_meta.parent_slot.and_then(|parent_slot| {
-            self.get_slot_entries_with_shred_info(
-                parent_slot,
-                /*shred_start_index:*/ 0,
-                allow_dead_slots,
-            )
-            .ok()
-            .and_then(|(entries, _, is_full)| {
-                // The blockhash is specifically the final entry hash in a
-                // block so ensure the block is full
-                if is_full {
-                    entries.last().map(|entry| entry.hash)
-                } else {
-                    None
-                }
-            })
-        });
-        if previous_blockhash.is_none() && require_previous_blockhash {
-            return Err(BlockstoreError::ParentEntriesUnavailable);
-        }
-        let previous_blockhash = previous_blockhash.unwrap_or_else(Hash::default);
-
-        let (rewards, num_partitions) = self
-            .rewards_cf
-            .get_protobuf_or_wincode::<StoredExtendedRewards>(slot)?
-            .unwrap_or_default()
-            .into();
-
-        // The Blocktime and BlockHeight column families are updated asynchronously; they
-        // may not be written by the time the complete slot entries are available. In this
-        // case, these fields will be `None`.
-        let block_time = self.blocktime_cf.get(slot)?;
-        let block_height = self.block_height_cf.get(slot)?;
-
-        let block = VersionedConfirmedBlock {
-            previous_blockhash: previous_blockhash.to_string(),
-            blockhash: blockhash.to_string(),
-            // If the slot is full it should have parent_slot populated
-            // from shreds received.
-            parent_slot: slot_meta.parent_slot.unwrap(),
-            transactions: self.map_transactions_to_statuses(slot, slot_transaction_iterator)?,
-            rewards,
-            num_partitions,
-            block_time,
-            block_height,
-        };
+        let block = self.build_versioned_confirmed_block(
+            slot,
+            require_previous_blockhash,
+            allow_dead_slots,
+            &slot_meta,
+            &blockhash,
+            slot_transaction_iterator,
+        )?;
 
         Ok(VersionedConfirmedBlockWithEntries { block, entries })
     }
@@ -4122,6 +4084,28 @@ impl Blockstore {
         }
         let slot_transaction_iterator = transactions.into_iter();
 
+        let block = self.build_versioned_confirmed_block(
+            slot,
+            require_previous_blockhash,
+            allow_dead_slots,
+            &slot_meta,
+            &blockhash,
+            slot_transaction_iterator,
+        )?;
+
+        Ok(VersionedConfirmedBlockWithComponents { block, components })
+    }
+
+    // Helper to build VersionConfirmedBlock from blockhash and transactions
+    fn build_versioned_confirmed_block(
+        &self,
+        slot: Slot,
+        require_previous_blockhash: bool,
+        allow_dead_slots: bool,
+        slot_meta: &SlotMeta,
+        blockhash: &Hash,
+        slot_transaction_iterator: impl Iterator<Item = VersionedTransaction>,
+    ) -> Result<VersionedConfirmedBlock> {
         let previous_blockhash = slot_meta.parent_slot.and_then(|parent_slot| {
             self.get_slot_entries_with_shred_info(
                 parent_slot,
@@ -4142,7 +4126,7 @@ impl Blockstore {
         if previous_blockhash.is_none() && require_previous_blockhash {
             return Err(BlockstoreError::ParentEntriesUnavailable);
         }
-        let previous_blockhash = previous_blockhash.unwrap_or_else(Hash::default);
+        let previous_blockhash = previous_blockhash.unwrap_or_default();
 
         let (rewards, num_partitions) = self
             .rewards_cf
@@ -4156,7 +4140,7 @@ impl Blockstore {
         let block_time = self.blocktime_cf.get(slot)?;
         let block_height = self.block_height_cf.get(slot)?;
 
-        let block = VersionedConfirmedBlock {
+        Ok(VersionedConfirmedBlock {
             previous_blockhash: previous_blockhash.to_string(),
             blockhash: blockhash.to_string(),
             // If the slot is full it should have parent_slot populated
@@ -4167,9 +4151,7 @@ impl Blockstore {
             num_partitions,
             block_time,
             block_height,
-        };
-
-        Ok(VersionedConfirmedBlockWithComponents { block, components })
+        })
     }
 
     pub fn map_transactions_to_statuses(
