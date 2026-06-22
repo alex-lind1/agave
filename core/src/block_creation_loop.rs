@@ -29,7 +29,10 @@ use {
     solana_measure::measure::Measure,
     solana_perf::packet::{BytesPacket, Meta, PacketBatch, bytes::Bytes},
     solana_poh::{
-        poh_recorder::{GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS, PohRecorder, PohRecorderError},
+        poh_recorder::{
+            GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS, PohRecorder, PohRecorderError,
+            record_alpenglow_block_completion_start,
+        },
         record_channels::RecordReceiver,
     },
     solana_pubkey::Pubkey,
@@ -713,6 +716,8 @@ fn record_and_complete_block(
         }
     };
 
+    let block_completion_start = Instant::now();
+
     if window_has_moved_on {
         // The cluster has selected a later parent, so this bank will never get a
         // footer. Do not record more transactions into it or wait for reward
@@ -743,6 +748,7 @@ fn record_and_complete_block(
     let bank = w_poh_recorder
         .bank()
         .expect("Bank cannot have been cleared as BlockCreationLoop is the only modifier");
+    record_alpenglow_block_completion_start(bank.bank_id(), block_completion_start);
 
     trace!(
         "{}: bank {} has reached block timeout, ticking",

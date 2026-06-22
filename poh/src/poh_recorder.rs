@@ -44,8 +44,9 @@ use {
     solana_transaction::versioned::VersionedTransaction,
     std::{
         cmp,
+        collections::HashMap,
         sync::{
-            Arc, Mutex, RwLock,
+            Arc, LazyLock, Mutex, RwLock,
             atomic::{AtomicBool, AtomicU64, Ordering},
         },
         time::{Duration, Instant},
@@ -98,6 +99,37 @@ pub enum PohRecorderError {
 pub(crate) type Result<T> = std::result::Result<T, PohRecorderError>;
 
 pub type WorkingBankEntryOrMarker = (Arc<Bank>, (EntryOrMarker, u64));
+
+const ALPENGLOW_BLOCK_COMPLETION_TIMER_MAX_ENTRIES: usize = 1_024;
+const ALPENGLOW_BLOCK_COMPLETION_TIMER_TTL: Duration = Duration::from_secs(60);
+
+static ALPENGLOW_BLOCK_COMPLETION_TIMERS: LazyLock<Mutex<HashMap<BankId, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn record_alpenglow_block_completion_start(bank_id: BankId, start: Instant) {
+    let mut timers = ALPENGLOW_BLOCK_COMPLETION_TIMERS.lock().unwrap();
+    timers.insert(bank_id, start);
+
+    if timers.len() <= ALPENGLOW_BLOCK_COMPLETION_TIMER_MAX_ENTRIES {
+        return;
+    }
+
+    timers.retain(|_, start| start.elapsed() <= ALPENGLOW_BLOCK_COMPLETION_TIMER_TTL);
+    while timers.len() > ALPENGLOW_BLOCK_COMPLETION_TIMER_MAX_ENTRIES {
+        let bank_id = *timers
+            .keys()
+            .next()
+            .expect("timer map must be nonempty while over capacity");
+        timers.remove(&bank_id);
+    }
+}
+
+pub fn take_alpenglow_block_completion_start(bank_id: BankId) -> Option<Instant> {
+    ALPENGLOW_BLOCK_COMPLETION_TIMERS
+        .lock()
+        .unwrap()
+        .remove(&bank_id)
+}
 
 #[derive(Debug)]
 pub struct RecordSummary {
