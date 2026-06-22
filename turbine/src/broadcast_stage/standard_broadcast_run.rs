@@ -21,6 +21,7 @@ use {
             merkle_tree::MerkleTree,
         },
     },
+    solana_poh::poh_recorder::take_alpenglow_block_completion_start,
     solana_runtime::bank::Bank,
     solana_sha256_hasher::hashv,
     solana_time_utils::AtomicInterval,
@@ -464,6 +465,12 @@ impl StandardBroadcastRun {
         let shreds = Arc::new(shreds);
         debug_assert!(shreds.iter().all(|shred| shred.slot() == bank.slot()));
         dispatch_shreds(blockstore_sender, socket_sender, shreds, batch_info)?;
+        let block_completion_elapsed_us = if is_last_in_slot {
+            take_alpenglow_block_completion_start(bank.bank_id())
+                .map(|start| start.elapsed().as_micros() as i64)
+        } else {
+            None
+        };
 
         coding_send_time.stop();
 
@@ -474,6 +481,18 @@ impl StandardBroadcastRun {
         self.process_shreds_stats += *process_stats;
 
         if last_tick_height == bank.max_tick_height() {
+            if let Some(block_completion_elapsed_us) = block_completion_elapsed_us {
+                datapoint_info!(
+                    "alpenglow-block-completion-timing",
+                    ("slot", bank.slot(), i64),
+                    ("bank_id", bank.bank_id(), i64),
+                    (
+                        "block_completion_elapsed_us",
+                        block_completion_elapsed_us,
+                        i64
+                    ),
+                );
+            }
             self.report_and_reset_stats(false);
             self.completed = true;
 
